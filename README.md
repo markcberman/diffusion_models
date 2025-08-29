@@ -14,7 +14,7 @@ DDIM is a variant of diffusion models that enables faster sampling through deter
 ## Features
 
 - **Batch Size**: 32
-- **Training**: 1000 iterations per epoch for 50 epochs
+- **Training**: Configurable epochs and iterations per epoch (defaults: 1 epoch, 1 iteration)
 - **Model Architecture**: UNet with skip connections and time conditioning
 - **Sampling**: Deterministic DDIM sampling (eta=0.0)
 - **Image Size**: 32x32 (CIFAR-10 native resolution)
@@ -34,13 +34,24 @@ pip install -r requirements.txt
 To train the DDIM model on CIFAR-10:
 
 ```bash
+# Use default settings (1 epoch, 1 iteration - for quick testing)
 python ddim_cifar.py
+
+# Customize training parameters
+python ddim_cifar.py --epochs 50 --iterations 1000
+
+# Train for 10 epochs with 500 iterations each
+python ddim_cifar.py --epochs 10 --iterations 500
 ```
+
+**Command Line Arguments:**
+- `--epochs`: Number of training epochs (default: 1)
+- `--iterations`: Number of iterations per epoch (default: 1)
 
 The training process will:
 - Download CIFAR-10 dataset automatically
-- Train for 50 epochs with 1000 iterations each
-- Save model checkpoints every 10 epochs
+- Train for the specified number of epochs with the specified iterations each
+- Save model checkpoints every 10 epochs (if training for 10+ epochs)
 - Generate sample images after training
 
 ### Model Checkpoints
