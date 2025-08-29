@@ -8,15 +8,27 @@ import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
 import math
+import sys
+import argparse
+
+# Parse command line arguments
+def parse_args():
+    parser = argparse.ArgumentParser(description='DDIM CIFAR-10 Training')
+    parser.add_argument('--epochs', type=int, default=1, help='Number of training epochs (default: 1)')
+    parser.add_argument('--iterations', type=int, default=1, help='Number of iterations per epoch (default: 1)')
+    return parser.parse_args()
 
 # Set device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f"Using device: {device}")
 
+# Get command line arguments
+args = parse_args()
+
 # Hyperparameters
 BATCH_SIZE = 32
-NUM_EPOCHS = 50
-ITERATIONS_PER_EPOCH = 1000
+NUM_EPOCHS = args.epochs
+ITERATIONS_PER_EPOCH = args.iterations
 LEARNING_RATE = 2e-4
 BETA_START = 0.0001
 BETA_END = 0.02
@@ -47,7 +59,7 @@ class Block(nn.Module):
         super().__init__()
         self.time_mlp = nn.Linear(time_emb_dim, out_ch)
         if up:
-            self.conv1 = nn.Conv2d(2*in_ch, out_ch, 3, padding=1)
+            self.conv1 = nn.Conv2d(in_ch, out_ch, 3, padding=1)
             self.transform = nn.ConvTranspose2d(out_ch, out_ch, 4, 2, 1)
         else:
             self.conv1 = nn.Conv2d(in_ch, out_ch, 3, padding=1)
@@ -100,10 +112,13 @@ class UNet(nn.Module):
             nn.ReLU()
         )
         
-        # Upsampling
-        self.up1 = Block(512, 256, time_dim, up=True)
-        self.up2 = Block(256, 128, time_dim, up=True)
-        self.up3 = Block(128, 64, time_dim, up=True)
+        # Upsampling with skip connection handling
+        self.up1_conv = nn.Conv2d(256 + 256, 256, 3, padding=1)  # 256 + 256 = 512 input channels
+        self.up1_block = Block(512, 256, time_dim, up=True)
+        self.up2_conv = nn.Conv2d(128 + 128, 128, 3, padding=1)  # 128 + 128 = 256 input channels
+        self.up2_block = Block(256, 128, time_dim, up=True)
+        self.up3_conv = nn.Conv2d(64 + 64, 64, 3, padding=1)   # 64 + 64 = 128 input channels
+        self.up3_block = Block(128, 64, time_dim, up=True)
         
         # Final convolution
         self.output = nn.Conv2d(64, c_out, 1)
@@ -124,9 +139,20 @@ class UNet(nn.Module):
         x3 = self.bottleneck(x3)
         
         # Upsampling with skip connections
-        x = self.up1(x3, t)
-        x = self.up2(x, t)
-        x = self.up3(x, t)
+        # First upsampling: upsample bottleneck output to match x2 spatial dimensions
+        x = self.up1_block(x3, t)  # This upsamples from 4x4 to 8x8
+        x = torch.cat([x, x2], dim=1)  # Now both are 8x8, concatenate: 256 + 256 = 512 channels
+        x = self.up1_conv(x)
+        
+        # Second upsampling: upsample to match x1 spatial dimensions
+        x = self.up2_block(x, t)  # This upsamples from 8x8 to 16x16
+        x = torch.cat([x, x1], dim=1)  # Now both are 16x16, concatenate: 128 + 128 = 256 channels
+        x = self.up2_conv(x)
+        
+        # Third upsampling: upsample to match x0 spatial dimensions
+        x = self.up3_block(x, t)  # This upsamples from 16x16 to 32x32
+        x = torch.cat([x, x0], dim=1)  # Now both are 32x32, concatenate: 64 + 64 = 128 channels
+        x = self.up3_conv(x)
         
         return self.output(x)
 
@@ -227,6 +253,11 @@ def train_epoch(model, dataloader, optimizer, diffusion, device):
     return total_loss / min(len(dataloader), ITERATIONS_PER_EPOCH)
 
 def main():
+    print(f"Training DDIM model with {NUM_EPOCHS} epochs and {ITERATIONS_PER_EPOCH} iterations per epoch")
+    print("Usage: python ddim_cifar.py --epochs <num_epochs> --iterations <num_iterations>")
+    print("Defaults: --epochs 1 --iterations 1")
+    print()
+    
     # Data loading
     transform = transforms.Compose([
         transforms.Resize(IMG_SIZE),
